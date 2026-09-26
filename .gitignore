@@ -173,6 +173,9 @@ weights/
 postgres_data/
 postgres_lock/
 
+# Private project documents
+vigil_docs/*.pdf
+
 # Singularity files
 *.sif
 *.def
