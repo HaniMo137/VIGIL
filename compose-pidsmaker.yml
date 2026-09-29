@@ -8,11 +8,13 @@ services:
     ports:
       - "8000:8000"
       - "5000:5000"  # viz port
+      - "127.0.0.1:8765:8765"  # local incident viewer
     environment:
       DB_HOST: postgres
       DOCKER_PORT: ${DOCKER_PORT:-5432}
       DB_USER: postgres
       DB_PASSWORD: postgres
+      VIGIL_VIEWER_HOST: 0.0.0.0
     volumes:
       - ./:/home/pids
       - ${ARTIFACTS_DIR:-/home/artifacts}:/home/artifacts
@@ -29,5 +31,5 @@ services:
 
 networks:
   shared_network:
-    external:
-      name: shared_network
+    name: shared_network
+    external: true

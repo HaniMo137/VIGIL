@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VIGIL · Incident Explorer</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script defer src="/vendor/d3.v4.min.js"></script>
+  <script defer src="/static/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">V</span><div><strong>VIGIL</strong><span>Incident Explorer</span></div></div>
+    <div class="topbar-right"><span class="local-badge">LOCAL · READ ONLY</span><span id="threshold-badge">Threshold —</span></div>
+  </header>
+
+  <div class="workspace">
+    <aside class="sidebar">
+      <div class="sidebar-heading"><div><span class="eyebrow">CANDIDATE INCIDENTS</span><h1>Cases</h1></div><span id="incident-count" class="count">0</span></div>
+      <div id="incident-list" class="incident-list" aria-label="Incidents"></div>
+      <div class="sidebar-footer">
+        <h2>Evidence roles</h2>
+        <div class="legend-row"><span class="swatch seed"></span>Seed <span>high-scoring event</span></div>
+        <div class="legend-row"><span class="swatch connector"></span>Connector <span>linking event</span></div>
+        <div class="legend-row"><span class="swatch context"></span>Context <span>adjacent evidence</span></div>
+        <div class="legend-row"><span class="swatch other-seed"></span>Other high score <span>outside this incident</span></div>
+        <div class="legend-row"><span class="swatch other"></span>Other <span>original event</span></div>
+        <p>Colors show evidence roles, not confirmed malicious labels.</p>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <section class="overview">
+        <div><span class="eyebrow">INVESTIGATION VIEW</span><h2 id="case-title">Choose an incident</h2><p id="case-subtitle">Compare the built incident with its original provenance neighborhood.</p></div>
+        <div class="stat-row"><div class="stat"><strong id="seed-count">—</strong><span>seeds</span></div><div class="stat"><strong id="connector-count">—</strong><span>connectors</span></div><div class="stat"><strong id="context-count">—</strong><span>context</span></div></div>
+      </section>
+
+      <section class="controls" aria-label="Graph filters">
+        <div class="time-controls">
+          <div class="control-title"><strong>Time window</strong><span id="time-label">—</span></div>
+          <div class="range-row"><label for="time-from">From</label><input id="time-from" type="range" min="0" max="100" value="0"><label for="time-to">To</label><input id="time-to" type="range" min="0" max="100" value="100"></div>
+        </div>
+        <div class="focus-controls">
+          <label for="hops">Original radius</label><select id="hops"><option value="1">1 hop</option><option value="2">2 hops</option></select>
+          <label for="focus-node">Focus node</label><input id="focus-node" inputmode="numeric" placeholder="Node ID"><button id="focus-button" type="button">Focus</button><button id="clear-focus" type="button" class="ghost-button">Reset</button>
+        </div>
+      </section>
+
+      <div id="status" class="status" role="status" aria-live="polite">Loading local evidence…</div>
+
+      <section class="graph-grid" aria-label="Linked provenance graphs">
+        <article class="graph-card"><div class="card-heading"><div><span class="eyebrow">RECONSTRUCTED</span><h3>Incident graph</h3></div><span id="incident-graph-size" class="graph-size">—</span></div><div id="incident-graph" class="graph-canvas"></div><div class="card-foot">Seeds and the evidence selected to connect them.</div></article>
+        <article class="graph-card"><div class="card-heading"><div><span class="eyebrow">SOURCE EVIDENCE</span><h3>Original provenance</h3></div><span id="original-graph-size" class="graph-size">—</span></div><div id="original-graph" class="graph-canvas"></div><div class="card-foot">Bounded local slice. Gray activity was not retained in this incident.</div></article>
+      </section>
+
+      <section class="evidence-card" aria-label="Selected evidence"><div class="card-heading"><div><span class="eyebrow">EVENT DETAIL</span><h3 id="detail-title">Select an event or node</h3></div><span id="detail-role" class="role-pill">—</span></div><div id="detail-body" class="detail-body">Click an edge in either graph to inspect its score and provenance identity. Drag nodes to rearrange; scroll to zoom.</div></section>
+    </main>
+  </div>
+</body>
+</html>

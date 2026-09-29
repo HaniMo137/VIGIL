@@ -1,0 +1,5 @@
+{
+  "baseline": {},
+  "short_paths": {"max_connector_hops": 2},
+  "with_context": {"context_hops": 1}
+}
