@@ -79,6 +79,14 @@ to overwrite an existing demo directory; use `--output-dir` for another run.
 Adjust `--cases`, `--chain-edges`, or `--background-chains` to change demo size.
 The older `artifacts/incident_demo/` sample is left untouched.
 
+The viewer also has an optional verified-memory comparison panel through its
+Python `create_app(memory_retriever=..., incident_node_features=...)` API. It
+shows both verified labels and their reference graphs; a closest example below
+threshold is marked as context, not a match. The command-line demo does not
+enable this panel because no trained encoder checkpoint or reference feature
+artifacts are bundled. See `pidsmaker/memory/README.md` for the intake and
+retrieval contract.
+
 To inspect your own run, replace the three viewer paths with your incident
 JSON, original graph, and matching score CSV. Pass `--relation-map` if the graph
 needs event-label translation. The viewer loads the whole trusted graph on the

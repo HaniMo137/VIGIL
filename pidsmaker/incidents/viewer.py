@@ -16,6 +16,7 @@ from flask import Flask, abort, jsonify, request, send_from_directory
 
 from pidsmaker.incidents.__main__ import _load_graph
 from pidsmaker.incidents.builder import prepare_provenance_graph
+from pidsmaker.memory.retrieval import IncidentRetriever
 
 STATIC_DIR = Path(__file__).parent / "viewer_static"
 ROLES = (("seed_edges", "seed"), ("connector_edges", "connector"),
@@ -40,7 +41,8 @@ class IncidentViewerData:
 
     def __init__(self, incident_path, graph_path, scores_path,
                  relation_to_id=None, max_edges=300, max_nodes=400,
-                 time_padding_ns=5_000_000_000):
+                 time_padding_ns=5_000_000_000, *, memory_retriever=None,
+                 incident_node_features=None):
         if max_edges < 1 or max_nodes < 2 or time_padding_ns < 0:
             raise ValueError("Viewer limits must be positive")
         self.max_edges = max_edges
@@ -78,6 +80,16 @@ class IncidentViewerData:
                         raise ValueError("Incident event has more than one role")
                     role_map[identity] = role
             self.roles.append(role_map)
+        if (memory_retriever is None) != (incident_node_features is None):
+            raise ValueError("Memory retrieval needs both a retriever and incident features")
+        if memory_retriever is not None and not isinstance(memory_retriever, IncidentRetriever):
+            raise ValueError("Memory retriever must use verified memory entries")
+        if memory_retriever is not None and any(
+            index not in incident_node_features for index in range(len(self.incidents))
+        ):
+            raise ValueError("Missing node features for an incident")
+        self.memory_retriever = memory_retriever
+        self.incident_node_features = incident_node_features
 
     def _incident(self, index):
         if index < 0 or index >= len(self.incidents):
@@ -95,6 +107,7 @@ class IncidentViewerData:
             "region_nodes": self.graph.number_of_nodes(),
             "region_events": self.graph.number_of_edges(),
             "max_view_edges": self.max_edges,
+            "memory_enabled": self.memory_retriever is not None,
             "incidents": [
                 {
                     "id": index,
@@ -164,6 +177,70 @@ class IncidentViewerData:
                 nodes.update(new_nodes)
         return self._pack(events, role_map, truncated=total > len(events))
 
+    def memory_search(self, index):
+        self._incident(index)
+        if self.memory_retriever is None:
+            raise LookupError("Memory retrieval is not configured")
+        # Search the full selected incident, not its bounded display slice.
+        selected = self.graph.edge_subgraph(self.roles[index].keys()).copy()
+        result = self.memory_retriever.search(
+            selected, self.incident_node_features[index],
+        )
+        return {
+            "schema_id": result.schema_id,
+            "threshold": result.threshold,
+            "no_strong_match": result.no_strong_match,
+            "matches": [
+                {
+                    "entry_id": item.entry_id, "label": item.label.value,
+                    "similarity": item.similarity,
+                    "above_threshold": item.above_threshold,
+                }
+                for item in result.matches
+            ],
+        }
+
+    def memory_graph(self, index, entry_id):
+        matches = self.memory_search(index)["matches"]
+        if entry_id not in {item["entry_id"] for item in matches}:
+            raise KeyError(entry_id)
+        graph = self.memory_retriever.reference_graph(entry_id)
+        aliases = {node: "ref-" + str(position) for position, node in enumerate(graph.nodes)}
+        nodes = set()
+        events = []
+        truncated = False
+        for src, dst, key, data in graph.edges(keys=True, data=True):
+            new_nodes = {src, dst} - nodes
+            if len(events) >= self.max_edges or len(nodes) + len(new_nodes) > self.max_nodes:
+                truncated = True
+                continue
+            events.append((src, dst, key, data))
+            nodes.update(new_nodes)
+        return {
+            "nodes": [
+                {
+                    "id": aliases[node],
+                    "type": _safe_text(graph.nodes[node].get("node_type", "unknown"), 80),
+                    "label": _safe_text(graph.nodes[node].get("label", node)),
+                    "original_id": _safe_text(node, 120),
+                }
+                for node in graph.nodes if node in nodes
+            ],
+            "edges": [
+                {
+                    "id": _event_id(aliases[src], aliases[dst], key),
+                    "source": aliases[src], "target": aliases[dst],
+                    "key": _safe_text(key, 120), "time": str(data["time"]),
+                    "edge_type": _safe_text(data.get("edge_type", data.get("label")), 120),
+                    "operation": _safe_text(data.get("label", data.get("edge_type")), 120),
+                    "event_uuid": _safe_text(data.get("event_uuid", "—"), 160),
+                    "score": None, "role": "reference",
+                }
+                for src, dst, key, data in events
+            ],
+            "truncated": truncated,
+        }
+
     def original_slice(self, index, *, hops=1, start=None, end=None, focus=None):
         incident = self._incident(index)
         if hops not in (1, 2):
@@ -216,10 +293,13 @@ class IncidentViewerData:
 
 
 def create_app(incident_path, graph_path, scores_path, *, relation_to_id=None,
-               max_edges=300, max_nodes=400, time_padding_ns=5_000_000_000):
+               max_edges=300, max_nodes=400, time_padding_ns=5_000_000_000,
+               memory_retriever=None, incident_node_features=None):
     data = IncidentViewerData(
         incident_path, graph_path, scores_path, relation_to_id,
         max_edges, max_nodes, time_padding_ns,
+        memory_retriever=memory_retriever,
+        incident_node_features=incident_node_features,
     )
     app = Flask(__name__, static_folder=None)
     app.config["VIEWER_DATA"] = data
@@ -273,6 +353,20 @@ def create_app(incident_path, graph_path, scores_path, *, relation_to_id=None,
             abort(404)
         except (TypeError, ValueError) as exc:
             abort(400, str(exc))
+
+    @app.route("/api/memory/<int:index>")
+    def memory_matches(index):
+        try:
+            return jsonify(data.memory_search(index))
+        except (IndexError, LookupError):
+            abort(404)
+
+    @app.route("/api/memory/<int:index>/graph")
+    def memory_reference_graph(index):
+        try:
+            return jsonify(data.memory_graph(index, request.args.get("entry_id", "")))
+        except (IndexError, KeyError, LookupError):
+            abort(404)
 
     return app
 

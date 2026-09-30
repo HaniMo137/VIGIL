@@ -53,6 +53,15 @@
         <article class="graph-card"><div class="card-heading"><div><span class="eyebrow">SOURCE EVIDENCE</span><h3>Original provenance</h3></div><span id="original-graph-size" class="graph-size">—</span></div><div id="original-graph" class="graph-canvas"></div><div class="card-foot">Bounded local slice. Gray activity was not retained in this incident.</div></article>
       </section>
 
+      <section id="memory-panel" class="memory-panel" aria-label="Verified memory comparisons" hidden>
+        <div class="card-heading"><div><span class="eyebrow">VERIFIED REFERENCE MEMORY</span><h3>Similar incidents</h3></div><span id="memory-threshold" class="graph-size">—</span></div>
+        <p id="memory-status" class="memory-status">Loading verified examples…</p>
+        <div id="memory-matches" class="memory-matches"></div>
+        <div class="card-heading"><div><span class="eyebrow">REFERENCE GRAPH</span><h3 id="memory-graph-title">Choose an example</h3></div><span id="memory-graph-size" class="graph-size">—</span></div>
+        <div id="memory-graph" class="graph-canvas"></div>
+        <div class="card-foot">Similarity is a comparison aid, not a diagnosis. Reference labels come from independently admitted evidence.</div>
+      </section>
+
       <section class="evidence-card" aria-label="Selected evidence"><div class="card-heading"><div><span class="eyebrow">EVENT DETAIL</span><h3 id="detail-title">Select an event or node</h3></div><span id="detail-role" class="role-pill">—</span></div><div id="detail-body" class="detail-body">Click an edge in either graph to inspect its score and provenance identity. Drag nodes to rearrange; scroll to zoom.</div></section>
     </main>
   </div>

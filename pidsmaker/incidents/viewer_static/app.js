@@ -11,6 +11,8 @@ const state = {
   views: {},
   simulations: {},
   requestId: 0,
+  memoryRequestId: 0,
+  selectedMemory: null,
   timer: null,
 };
 
@@ -238,6 +240,64 @@ function renderIncidentList() {
   });
 }
 
+async function selectMemoryMatch(match, requestId) {
+  state.selectedMemory = match.entry_id;
+  for (const button of byId("memory-matches").querySelectorAll("button")) {
+    button.classList.toggle("active", button.dataset.entryId === match.entry_id);
+  }
+  try {
+    const params = new URLSearchParams({ entry_id: match.entry_id });
+    const graph = await getJson("/api/memory/" + state.active + "/graph?" + params);
+    if (requestId !== state.memoryRequestId || state.selectedMemory !== match.entry_id) return;
+    byId("memory-graph-title").textContent = match.entry_id + " · verified " + match.label;
+    byId("memory-graph-size").textContent = graph.nodes.length + " nodes · " + graph.edges.length + " events";
+    drawGraph("memory-graph", graph, "memory");
+    if (graph.truncated) byId("memory-status").textContent += " Reference display is truncated.";
+  } catch (error) {
+    if (requestId === state.memoryRequestId) byId("memory-status").textContent = error.message;
+  }
+}
+
+async function loadMemory(index) {
+  if (!state.summary.memory_enabled) return;
+  const requestId = ++state.memoryRequestId;
+  byId("memory-status").textContent = "Loading verified examples…";
+  byId("memory-matches").replaceChildren();
+  byId("memory-graph").replaceChildren();
+  byId("memory-graph-title").textContent = "Choose an example";
+  byId("memory-graph-size").textContent = "—";
+  try {
+    const result = await getJson("/api/memory/" + index);
+    if (requestId !== state.memoryRequestId) return;
+    byId("memory-threshold").textContent = result.threshold === null ?
+      "Threshold not calibrated" : "Similarity threshold ≥ " + result.threshold;
+    byId("memory-status").textContent = !result.matches.length ?
+      "No verified references are available." : result.no_strong_match ?
+      "No reliable memory match. Showing the closest example below threshold for context." :
+      result.threshold === null ? "Closest verified examples; no threshold decision." :
+      "Verified examples above the similarity threshold.";
+    const host = byId("memory-matches");
+    result.matches.forEach(match => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.entryId = match.entry_id;
+      button.className = "memory-match";
+      const title = document.createElement("strong");
+      title.textContent = match.entry_id + " · " + match.label;
+      const detail = document.createElement("small");
+      const status = match.above_threshold === false ? "below threshold · context only" :
+        match.above_threshold === null ? "threshold not calibrated" : "above threshold";
+      detail.textContent = "Similarity " + match.similarity.toFixed(3) + " · " + status;
+      button.append(title, detail);
+      button.addEventListener("click", () => selectMemoryMatch(match, requestId));
+      host.appendChild(button);
+    });
+    if (result.matches.length) selectMemoryMatch(result.matches[0], requestId);
+  } catch (error) {
+    if (requestId === state.memoryRequestId) byId("memory-status").textContent = error.message;
+  }
+}
+
 function filteredIncidentGraph(graph) {
   const [start, end] = selectedRange().map(BigInt);
   const edges = graph.edges.filter(edge => {
@@ -297,6 +357,7 @@ function selectIncident(index) {
   updateTimeLabel();
   renderIncidentList();
   refreshViews();
+  loadMemory(index);
 }
 
 function scheduleRefresh() {
@@ -310,6 +371,7 @@ async function start() {
     state.summary = await getJson("/api/summary");
     byId("threshold-badge").textContent = "Seed threshold ≥ " + state.summary.threshold;
     byId("incident-count").textContent = state.summary.incidents.length;
+    byId("memory-panel").hidden = !state.summary.memory_enabled;
     if (!state.summary.incidents.length) {
       setStatus("No seed incidents were produced for this region.");
       return;
