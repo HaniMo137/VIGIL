@@ -1,4 +1,5 @@
 import os
+from numbers import Integral
 
 import torch
 
@@ -29,7 +30,15 @@ def feat_inference(indexid2vec, etype2oh, ntype2oh, sorted_paths, out_dir, cfg):
         sorted_edges = graph.edges(data=True, keys=True)
 
         src, dst, msg, t, y = [], [], [], [], []
+        event_keys = []
+        preserve_keys = cfg.feat_inference.preserve_event_keys
         for u, v, k, attr in sorted_edges:
+            if preserve_keys:
+                # Tensor metadata is sliced/collated alongside the events by
+                # CollatableTemporalData. Never regenerate keys after batching.
+                if isinstance(k, bool) or not isinstance(k, Integral):
+                    raise ValueError("Preserving event keys requires integer provenance multiedge keys")
+                event_keys.append(int(k))
             src.append(int(u))
             dst.append(int(v))
             t.append(int(attr["time"]))
@@ -75,6 +84,8 @@ def feat_inference(indexid2vec, etype2oh, ntype2oh, sorted_paths, out_dir, cfg):
             msg=torch.vstack(msg).to(torch.float),
             y=torch.tensor(y).to(torch.long),
         )
+        if preserve_keys:
+            data.event_key = torch.tensor(event_keys, dtype=torch.long)
 
         os.makedirs(out_dir, exist_ok=True)
         file = path.split("/")[-1]

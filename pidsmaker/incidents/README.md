@@ -179,9 +179,24 @@ cross window boundaries**. The defaults are a five-second seed gap, five
 connector hops, and no extra context. Score matching uses original node IDs,
 nanosecond timestamps, and the featurizer's relation encoding, not score CSV
 filenames. Every graph event must have exactly one matching score; parallel
-events with identical identities need `key` or `event_uuid` in the score CSV.
-The current detector exports neither, so genuinely ambiguous data must be
-resolved at export before evaluation. Graphs are trusted local pickle files.
+events with identical endpoints, timestamps and relations need `key` or
+`event_uuid` in the score CSV. VIGIL enables `feat_inference.preserve_event_keys`
+to carry each original integer multiedge key through batching into the CSV
+`key` column. Keys are matching metadata, not model inputs. Stable identity
+suffixes prevent same-time batches from overwriting each other's CSVs.
+Legacy CSVs without identifiers still reject ambiguous matches; no duplicate
+events are dropped or arbitrarily paired. Graphs are trusted local pickle files.
+
+The identity setting changes cache paths from feature inference onward, so
+upgrading to this config automatically regenerates feature tensors, batching,
+training scores and incident reports, while reusing upstream graphs and
+Word2Vec. No old artifacts need deletion. To explicitly rebuild those stages:
+
+```bash
+python pidsmaker/main.py vigil ATLASV2_EDR \
+  --wandb --project VIGIL --exp vigil-atlas-event-keys \
+  --force_restart feat_inference
+```
 
 Useful overrides (append to the run command):
 

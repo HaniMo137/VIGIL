@@ -5,6 +5,9 @@ featurization:
   used_method: word2vec
   emb_dim: 128
 
+feat_inference:
+  preserve_event_keys: True
+
 batching:
   node_features: node_emb
   intra_graph_batching:

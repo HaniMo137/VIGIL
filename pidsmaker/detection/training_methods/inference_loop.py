@@ -1,3 +1,4 @@
+import hashlib
 import os
 import random
 import time
@@ -62,6 +63,16 @@ def test_edge_level(
             "edge_type": edge_types.astype(int),
         }
     )
+    preserve_keys = cfg.feat_inference.preserve_event_keys
+    if preserve_keys:
+        event_keys = getattr(data, "event_key", None)
+        if event_keys is None:
+            raise ValueError(
+                "Missing original event keys; rerun with --force_restart feat_inference"
+            )
+        if event_keys.dtype != torch.long or event_keys.ndim != 1 or len(event_keys) != len(edge_df):
+            raise ValueError("Original event keys must be one int64 value per scored event")
+        edge_df["key"] = event_keys.cpu().numpy()
 
     # Here is a checkpoint, which records all edge losses in the current time window
     time_interval = (
@@ -70,7 +81,15 @@ def test_edge_level(
 
     logs_dir = os.path.join(cfg.training._edge_losses_dir, split, model_epoch_file)
     os.makedirs(logs_dir, exist_ok=True)
-    csv_file = os.path.join(logs_dir, time_interval + ".csv")
+    suffix = ""
+    if preserve_keys:
+        # Distinct batches can have identical start/end timestamps. Include
+        # stable event identities so one batch never overwrites another. The
+        # dot separator preserves existing timestamp parsing (date.nanoseconds).
+        identities = edge_df[["srcnode", "dstnode", "time", "edge_type", "key"]]
+        digest = hashlib.sha256(identities.to_numpy(dtype="<i8").tobytes()).hexdigest()
+        suffix = ".events_" + digest
+    csv_file = os.path.join(logs_dir, time_interval + suffix + ".csv")
 
     edge_df.to_csv(csv_file, sep=",", header=True, index=False, encoding="utf-8")
     return all_losses

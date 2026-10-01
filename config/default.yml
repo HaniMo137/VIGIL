@@ -62,6 +62,7 @@ featurization:
     workers: 15
 feat_inference:
   to_remove: True
+  preserve_event_keys: False
 
 training:
   encoder:

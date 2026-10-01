@@ -26,6 +26,7 @@ def test_configuration_and_optional_stage(tmp_path):
     cfg = configuration(tmp_path)
     assert cfg.featurization.training_split == "train"
     assert cfg.featurization.used_method == "word2vec"
+    assert cfg.feat_inference.preserve_event_keys
     assert cfg.batching.node_features == "node_emb"
     assert cfg.batching.intra_graph_batching.used_methods == "edges"
     assert cfg.batching.intra_graph_batching.edges.intra_graph_batch_size == 1024
@@ -58,6 +59,7 @@ def test_encoder_training_and_checkpoint(tmp_path):
         t=torch.arange(4), msg=torch.randn(4, 295),
         edge_type=torch.nn.functional.one_hot(torch.tensor([0, 1, 2, 32]), 33).float(),
         node_type_src=torch.ones(4, 3), node_type_dst=torch.ones(4, 3), y=torch.zeros(4),
+        event_key=torch.zeros(4, dtype=torch.long),
     )
     model = build_model(batch, torch.device("cpu"), cfg, max_node_num=50)
     before = model.encoder.semantic_encoder[0].weight.detach().clone()
@@ -393,6 +395,7 @@ def test_actual_training_then_incident_stage_offline(tmp_path, monkeypatch):
             msg=torch.randn(3, 295),
             edge_type=torch.nn.functional.one_hot(torch.tensor([0, 1, 32]), 33).float(),
             node_type_src=torch.ones(3, 3), node_type_dst=torch.ones(3, 3), y=torch.zeros(3),
+            event_key=torch.zeros(3, dtype=torch.long),
         )
 
     train, val, test = batch(0), batch(100), batch(200)
@@ -412,3 +415,105 @@ def test_actual_training_then_incident_stage_offline(tmp_path, monkeypatch):
         saved = json.loads((Path(cfg.postprocessing._task_path) / "report.json").read_text())
         assert (Path(cfg.postprocessing._task_path) / saved["windows"][0]["incidents"]).is_file()
         assert (Path(cfg.training._trained_models_dir) / "model_epoch_1/state_dict.pkl").is_file()
+
+
+def test_parallel_events_survive_features_batches_export_and_alignment(tmp_path):
+    from pidsmaker.tasks.feat_inference import feat_inference
+    from pidsmaker.utils.data_utils import load_all_datasets, collate_temporal_data
+    from pidsmaker.utils.dataset_utils import get_rel2id, get_node_map
+    from pidsmaker.utils.utils import gen_relation_onehot
+    from pidsmaker.detection.training_methods.inference_loop import test_edge_level
+    from pidsmaker.detection.evaluation_methods.evaluation_utils import datetime_to_ns_time_US_handle_nano
+
+    cfg = configuration(tmp_path / "artifacts")
+    cfg.batching.intra_graph_batching.edges.intra_graph_batch_size = 1
+    graph = nx.MultiDiGraph()
+    for node in (506, 255026, 255027):
+        graph.add_node(node, node_type="subject")
+    timestamp = 1658031176581720500
+    for dst, key in ((255026, 7), (255026, 42), (255027, 9)):
+        graph.add_edge(506, dst, key=key, time=timestamp, label="FILE_OPENED")
+    graph_path = tmp_path / "parallel.pt"
+    torch.save(graph, graph_path)
+    relations = get_rel2id(cfg)
+    for split in ("train", "val", "test"):
+        directory = Path(cfg.feat_inference._edge_embeds_dir) / split
+        feat_inference(
+            {n: torch.randn(128).numpy() for n in graph.nodes},
+            gen_relation_onehot(relations), gen_relation_onehot(get_node_map()),
+            [str(graph_path)], str(directory), cfg,
+        )
+        feature_path = directory / "parallel.pt.TemporalData.simple"
+        data = torch.load(feature_path)
+        assert data.event_key.tolist() == [7, 42, 9]
+        # Keys must follow reordering, slicing, and concatenation, not positions
+        # assigned later by the CSV writer.
+        data = data[torch.tensor([2, 1, 0])]
+        assert data.event_key.tolist() == [9, 42, 7]
+        joined = collate_temporal_data([data[:1], data[1:]])
+        assert joined.event_key.tolist() == [9, 42, 7]
+        torch.save(joined, feature_path)
+
+    _, _, test_data, _ = load_all_datasets(cfg, torch.device("cpu"))
+
+    class IdentityScoreModel:
+        def eval(self):
+            pass
+
+        def __call__(self, batch, **kwargs):
+            # Distinct losses expose incorrectly paired parallel edges. This
+            # is a test double, NOT a feature consumed by the actual encoder.
+            return {"loss": batch.event_key.float() + 1}
+
+    for batch in test_data[0]:
+        test_edge_level(batch, IdentityScoreModel(), "test", "model_epoch_0", cfg, "cpu")
+    files = pipeline.score_files(cfg.training._edge_losses_dir, "test", 0)
+    assert len(files) == 3  # all three batches have the exact same timestamps
+    for file in files:
+        # Existing detector time-range parsing remains compatible.
+        assert len([datetime_to_ns_time_US_handle_nano(t) for t in file.name.split("~")]) == 2
+    output = tmp_path / "aligned"
+    windows, _ = pipeline.align_split([graph_path], files, pipeline.relation_score_ids(relations), output)
+    scores = pd.read_csv(output.parent / windows[0]["scores"])
+    assert dict(zip(scores["key"], scores.loss)) == {7: 8., 42: 43., 9: 10.}
+    prepared = pipeline.prepare_provenance_graph(graph, scores, pipeline.relation_score_ids(relations))
+    assert prepared[506][255026][7]["score"] == 8.
+    assert prepared[506][255026][42]["score"] == 43.
+    incidents = pipeline.build_incidents(graph, scores, 0., relation_to_id=pipeline.relation_score_ids(relations))
+    assert sum(len(i.seed_edges) for i in incidents) == 3
+    # Re-export is deterministic, not a second copy of every score.
+    for batch in test_data[0]:
+        test_edge_level(batch, IdentityScoreModel(), "test", "model_epoch_0", cfg, "cpu")
+    assert len(pipeline.score_files(cfg.training._edge_losses_dir, "test", 0)) == 3
+
+
+def test_event_identity_setting_invalidates_only_downstream_cache(tmp_path):
+    from pidsmaker.config.pipeline import set_task_paths
+    cfg = configuration(tmp_path)
+    tasks = ["construction", "transformation", "featurization", "feat_inference",
+             "batching", "training", "evaluation", "postprocessing"]
+    keyed_paths = {t: getattr(cfg, t)._task_path for t in tasks}
+    cfg.feat_inference.preserve_event_keys = False
+    set_task_paths(cfg)
+    for task in tasks[:3]:
+        assert getattr(cfg, task)._task_path == keyed_paths[task]
+    for task in tasks[3:]:
+        assert getattr(cfg, task)._task_path != keyed_paths[task]
+
+
+def test_missing_event_keys_fail_with_rebuild_instruction(tmp_path):
+    from pidsmaker.detection.training_methods.inference_loop import test_edge_level
+    cfg = configuration(tmp_path)
+    batch = SimpleNamespace(t=torch.tensor([1]), original_edge_index=torch.tensor([[1], [2]]),
+                            edge_type=torch.tensor([[1., 0.]]))
+    class Model:
+        def eval(self):
+            pass
+        def __call__(self, *args, **kwargs):
+            return {"loss": torch.tensor([1.])}
+    with pytest.raises(ValueError, match="force_restart feat_inference"):
+        test_edge_level(batch, Model(), "test", "model_epoch_0", cfg, "cpu")
+    cfg.feat_inference.preserve_event_keys = False
+    test_edge_level(batch, Model(), "test", "model_epoch_0", cfg, "cpu")
+    scores = pd.read_csv(pipeline.score_files(cfg.training._edge_losses_dir, "test", 0)[0])
+    assert "key" not in scores  # old detector export is unchanged when disabled
