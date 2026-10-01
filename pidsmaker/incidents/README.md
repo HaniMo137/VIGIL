@@ -153,3 +153,112 @@ node is not assumed benign.
 After selecting settings on validation, run a single frozen configuration on
 `--split test`. The benchmark refuses a multi-strategy test run to prevent
 choosing settings using test labels. `--help` lists the full command options.
+
+## Integrated VIGIL evaluation
+
+```bash
+python pidsmaker/main.py vigil ATLASV2_EDR \
+  --wandb --project VIGIL --exp vigil-atlas-first
+```
+
+`config/vigil.yml` inherits VELOX. It uses training-only Word2Vec, Word2Vec-only
+node inputs, 1,024-event batches, 128-dimensional VIGIL layers, two residual
+blocks, dropout 0.3, learning rate 0.0001, and edge-type prediction. Training
+durations remain inherited, untuned starting settings. The detector retains
+validation-maximum thresholding with K-means disabled.
+
+The optional `postprocessing.incidents` stage runs after training. It chooses
+the latest **numerically ordered, complete scored epoch**, independently of the
+detector's best-test-metric summary. One threshold is frozen from **all validation
+losses in that epoch**. An incomplete newer epoch is skipped and recorded;
+duplicate/ambiguous scored events cause an error, not a guessed association.
+The report records the selected zero-based epoch and threshold.
+
+Each transformed test graph is processed once, separately. Incidents **do not
+cross window boundaries**. The defaults are a five-second seed gap, five
+connector hops, and no extra context. Score matching uses original node IDs,
+nanosecond timestamps, and the featurizer's relation encoding, not score CSV
+filenames. Every graph event must have exactly one matching score; parallel
+events with identical identities need `key` or `event_uuid` in the score CSV.
+The current detector exports neither, so genuinely ambiguous data must be
+resolved at export before evaluation. Graphs are trusted local pickle files.
+
+Useful overrides (append to the run command):
+
+```bash
+--postprocessing.incidents.epoch 9
+--postprocessing.incidents.enabled False
+--postprocessing.incidents.complete_node_labels path/to/verified_labels.csv
+```
+
+Other builder overrides are `max_time_gap_ns`, `max_connector_hops`, and
+`context_hops` under the same prefix. Disabling the stage leaves detector
+training/evaluation unchanged. This integration expects single-dataset,
+edge-level scores and unmodified event identities, as configured for VIGIL.
+
+The final log prints the report location, typically:
+
+```text
+artifacts/postprocessing/postprocessing/<configuration-hash>/ATLASV2_EDR/
+  report.json
+  results-<id>/
+    summary.csv
+    windows.csv
+    attacks.csv
+    relation_ids.json
+    incidents_00000.json
+    aligned/test/window_00000.csv
+```
+
+The artifact root follows PIDSMaker's `--artifact_dir`. Each row in
+`report.json` → `windows` identifies the original graph and matching incident
+JSON/score CSV. Paths for incidents/scores are relative to the report directory;
+the original graph path is absolute. Open any window in the local viewer:
+
+```bash
+python -m pidsmaker.incidents.viewer \
+  --incidents <report-directory>/<window-incidents-path> \
+  --graph <window-graph-path> \
+  --scores <report-directory>/<window-scores-path> \
+  --relation-map <report-directory>/<results-directory>/relation_ids.json
+```
+
+Coverage denominators contain labeled malicious nodes **present in processed
+graphs**. Dataset coverage uses unique node unions across windows, not mean
+window percentages. Absent labeled nodes are reported separately. Per-attack
+coverage uses each attack's present nodes. Fragmentation counts distinct
+incidents touching an attack across all windows (0 means no recovered incident).
+Shared attack nodes are excluded from fragmentation/mixing, but included in
+coverage. These are label-file attack groups, not inferred ATT&CK techniques.
+
+Missing label files are recorded and warned about; metrics describe available
+labels only. Undefined results are JSON `null` / blank CSV cells, not zero.
+Unlabeled nodes are never assumed benign. Benign contamination is available only
+with an explicitly verified, complete `node_id,is_malicious` (0/1) file covering
+every processed node. This assertion of label completeness is the user's
+responsibility; coverage and consistency are checked automatically.
+
+Runtime times exactly one builder call per window (including graph preparation),
+excluding loading, metrics and logging. Event counts sum incident-role references;
+a connector reused by two incidents contributes twice. These are engineering
+measurements, not claims of real-data detection quality.
+
+W&B receives aggregate metric tables and chart-helper panels under `incidents/`,
+following the [W&B chart documentation](https://docs.wandb.ai/models/track/log/plots).
+Raw provenance, incident graphs, score rows and node identifiers stay local.
+Attack names from label filenames are included in the per-attack table.
+Cached evaluations reload and log their reports into the current run. Cache
+identity includes graph/score file paths, sizes and modification times, label
+content hashes, relation encoding and builder settings. Keep source files
+immutable during evaluation; use `--force_restart postprocessing` to recompute.
+Successful prior report generations are retained if a subsequent attempt fails.
+
+Without `--wandb`, the same local reports and viewer files are still produced.
+For CPU-only synthetic acceptance checks (including an offline W&B smoke test):
+
+```bash
+python -m pytest -q tests/test_vigil_pipeline.py
+```
+
+Memory admission and retrieval remain separate Python components; this stage
+neither labels candidates as trusted nor adds them to memory automatically.

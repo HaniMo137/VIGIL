@@ -45,6 +45,7 @@ from pidsmaker.tasks import (
     evaluation,
     feat_inference,
     featurization,
+    postprocessing,
     training,
     transformation,
     triage,
@@ -61,7 +62,7 @@ def get_task_to_module(cfg):
     Returns:
         dict: Mapping of task names to module and task_path information
     """
-    return {
+    tasks = {
         "construction": {
             "module": construction,
             "task_path": cfg.construction._task_path,
@@ -95,6 +96,12 @@ def get_task_to_module(cfg):
             "task_path": cfg.triage._task_path,
         },
     }
+    if cfg.postprocessing.incidents.enabled:
+        tasks["postprocessing"] = {
+            "module": postprocessing,
+            "task_path": cfg.postprocessing._task_path,
+        }
+    return tasks
 
 
 def clean_cfg_for_log(cfg):
@@ -153,7 +160,11 @@ def main(cfg, project=None, exp=None, sweep_id=None, **kwargs):
         module = task_to_module[task]["module"]
         task_path = task_to_module[task]["task_path"]
 
-        if should_restart[task]:
+        if task == "postprocessing":
+            # Cached metric reports must be logged into this run too.
+            return_value = module.main(cfg, force=should_restart[task])
+            set_task_to_done(task_path)
+        elif should_restart[task]:
             return_value = module.main(cfg)
             set_task_to_done(task_path)
 

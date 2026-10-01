@@ -12,3 +12,4 @@ from .rgcn import RGCN, PerTypeRGCN
 from .sage import SAGE
 from .sum_aggregation import SumAggregation
 from .tgn_encoder import TGNEncoder
+from .vigil_encoder import VigilPIDSEncoder

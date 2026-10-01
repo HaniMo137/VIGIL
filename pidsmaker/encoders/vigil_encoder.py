@@ -167,3 +167,11 @@ class VigilEncoder(nn.Module):
         z_dst = self.dst_encoder(h_dst)
 
         return z_src, z_dst
+
+
+class VigilPIDSEncoder(VigilEncoder):
+    """Adapt event-aligned role embeddings; keep encode_nodes() for memory."""
+
+    def forward(self, x_src, x_dst, **kwargs):
+        src, dst = super().forward(x_src, x_dst, **kwargs)
+        return {"h": (src, dst), "h_src": src, "h_dst": dst}

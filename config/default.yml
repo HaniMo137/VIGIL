@@ -1,3 +1,12 @@
+postprocessing:
+  incidents:
+    enabled: False
+    epoch: -1
+    max_time_gap_ns: 5000000000
+    max_connector_hops: 5
+    context_hops: 0
+    complete_node_labels: ""
+
 transformation:
   used_methods: none
   synthetic_attack_naive:
@@ -56,6 +65,8 @@ feat_inference:
 
 training:
   encoder:
+    vigil:
+      num_residual_blocks: 2
     x_is_tuple: False
     graph_attention:
       activation: relu

@@ -241,6 +241,11 @@ def encoder_factory(cfg, msg_dim, in_dim, device, max_node_num, graph_reindexer)
             )
 
         # MLP encoders
+        elif method == "vigil":
+            encoder = VigilPIDSEncoder(
+                in_dim, node_hid_dim, node_out_dim, dropout=dropout,
+                num_residual_blocks=cfg.training.encoder.vigil.num_residual_blocks,
+            )
         elif method == "none":
             encoder = LinearEncoder(in_dim, node_out_dim)
         elif method == "custom_mlp":

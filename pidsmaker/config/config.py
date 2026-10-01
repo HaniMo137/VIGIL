@@ -520,6 +520,7 @@ TASK_DEPENDENCIES = {
     "training": ["batching"],
     "evaluation": ["training"],
     "triage": ["evaluation"],
+    "postprocessing": ["training", "transformation"],
 }
 
 
@@ -604,6 +605,7 @@ FEATURIZATIONS_CFG = {
 }
 
 ENCODERS_CFG = {
+    "vigil": {"num_residual_blocks": Arg(int)},
     "tgn": {
         "tgn_memory_dim": Arg(int),
         "tgn_time_dim": Arg(int),
@@ -1140,7 +1142,16 @@ TASK_ARGS = {
             "remove_duplicated_subgraph": Arg(bool),
         },
     },
-    "postprocessing": {},
+    "postprocessing": {
+        "incidents": {
+            "enabled": Arg(bool),
+            "epoch": Arg(int, desc="-1 selects latest complete scored epoch"),
+            "max_time_gap_ns": Arg(int),
+            "max_connector_hops": Arg(int),
+            "context_hops": Arg(int),
+            "complete_node_labels": Arg(str, desc="Optional verified complete node_id,is_malicious CSV"),
+        },
+    },
 }
 
 EXPERIMENTS_CONFIG = {

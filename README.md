@@ -23,6 +23,20 @@ Detailed research designs, internal reports, datasets, and unpublished experimen
 
 VIGIL currently uses the PIDSMaker environment and workflow. See the preserved [PIDSMaker documentation](PIDSMaker_README.md) for installation, supported datasets, configuration, and basic usage.
 
+For a configured ATLASV2_EDR dataset:
+
+```bash
+python pidsmaker/main.py vigil ATLASV2_EDR \
+  --wandb --project VIGIL --exp vigil-atlas-first
+```
+
+This trains the VIGIL detector and evaluates candidate incidents once after
+training. The same W&B run includes `incidents/` coverage, counts, fragmentation,
+runtime, and label-availability panels. JSON/CSV reports are also saved locally;
+omit `--wandb` for local-only reporting. See the [evaluation guide](pidsmaker/incidents/README.md#integrated-vigil-evaluation)
+for output paths and visualization. Memory storage and retrieval remain separate
+components; this command does not populate or query memory.
+
 ## Incident builder
 
 The incident builder turns scored provenance events into smaller **candidate incidents**. It selects high-scoring events as seeds, groups seeds that share entities or have a time-respecting connection, and retains lower-scoring events when they help connect the story. Optional nearby context can be added without treating it as a seed. Unrelated activity stays separate, and every seed is retained, even when isolated.
