@@ -211,10 +211,22 @@ filenames. Every graph event must have exactly one matching score; parallel
 events with identical endpoints, timestamps and relations need `key` or
 `event_uuid` in the score CSV. VIGIL enables `feat_inference.preserve_event_keys`
 to carry each original integer multiedge key through batching into the CSV
-`key` column. Keys are matching metadata, not model inputs. Stable identity
-suffixes prevent same-time batches from overwriting each other's CSVs.
+`key` column. Keys are local to their original graph, not globally unique.
+With `feat_inference.event_identity_version: 2`, VIGIL also carries
+`source_graph` (SHA-256 of the graph filename and exact artifact bytes) and
+`event_uuid_hash` (SHA-256 of the original UUID text, if available). Per-event
+byte tensors preserve these fields through sorting, slicing and collation.
+Matching is scoped to the source graph before endpoints/time/relation/key and
+UUID checks. Two distinct boundary events in adjacent windows can therefore
+share endpoints, timestamp, relation and key without being conflated.
+These fields are matching metadata, not model inputs. CSV identity suffixes
+include source scope, preventing identical-looking batches from different graphs
+from overwriting each other. Copying unchanged artifacts to a different root
+preserves identity; modifying or reserializing a graph requires new scores.
 Legacy CSVs without identifiers still reject ambiguous matches; no duplicate
-events are dropped or arbitrarily paired. Graphs are trusted local pickle files.
+events are dropped or arbitrarily paired. True duplicates within one source
+graph still fail, even with identical losses. Mixing legacy and scoped CSVs
+fails explicitly. Graphs are trusted local pickle files.
 
 The identity setting changes cache paths from feature inference onward, so
 upgrading to this config automatically regenerates feature tensors, batching,
@@ -223,7 +235,7 @@ Word2Vec. No old artifacts need deletion. To explicitly rebuild those stages:
 
 ```bash
 python pidsmaker/main.py vigil ATLASV2_EDR \
-  --wandb --project VIGIL --exp vigil-atlas-event-keys \
+  --wandb --project VIGIL --exp vigil-tgn-scoped-events \
   --force_restart feat_inference
 ```
 

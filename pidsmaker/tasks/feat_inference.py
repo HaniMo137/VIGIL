@@ -15,6 +15,7 @@ from pidsmaker.featurization.feat_inference_methods import (
     feat_inference_word2vec,
 )
 from pidsmaker.utils.data_utils import CollatableTemporalData
+from pidsmaker.utils.event_identity import event_uuid_hash, source_graph_id
 from pidsmaker.utils.dataset_utils import get_node_map, get_rel2id
 from pidsmaker.utils.utils import (
     gen_relation_onehot,
@@ -31,7 +32,9 @@ def feat_inference(indexid2vec, etype2oh, ntype2oh, sorted_paths, out_dir, cfg):
 
         src, dst, msg, t, y = [], [], [], [], []
         event_keys = []
+        uuid_hashes = []
         preserve_keys = cfg.feat_inference.preserve_event_keys
+        scoped_identity = preserve_keys and cfg.feat_inference.event_identity_version == 2
         for u, v, k, attr in sorted_edges:
             if preserve_keys:
                 # Tensor metadata is sliced/collated alongside the events by
@@ -39,6 +42,9 @@ def feat_inference(indexid2vec, etype2oh, ntype2oh, sorted_paths, out_dir, cfg):
                 if isinstance(k, bool) or not isinstance(k, Integral):
                     raise ValueError("Preserving event keys requires integer provenance multiedge keys")
                 event_keys.append(int(k))
+                if scoped_identity:
+                    digest = event_uuid_hash(attr.get("event_uuid"))
+                    uuid_hashes.append(list(bytes.fromhex(digest)) if digest else [0] * 32)
             src.append(int(u))
             dst.append(int(v))
             t.append(int(attr["time"]))
@@ -86,6 +92,12 @@ def feat_inference(indexid2vec, etype2oh, ntype2oh, sorted_paths, out_dir, cfg):
         )
         if preserve_keys:
             data.event_key = torch.tensor(event_keys, dtype=torch.long)
+        if scoped_identity:
+            # Per-event byte tensors follow sorting/slicing/collation exactly
+            # like event_key. Never feed provenance metadata into the encoder.
+            identity = torch.tensor(list(bytes.fromhex(source_graph_id(path))), dtype=torch.uint8)
+            data.event_source_graph = identity.repeat(len(src), 1)
+            data.event_uuid_hash = torch.tensor(uuid_hashes, dtype=torch.uint8).reshape(-1, 32)
 
         os.makedirs(out_dir, exist_ok=True)
         file = path.split("/")[-1]

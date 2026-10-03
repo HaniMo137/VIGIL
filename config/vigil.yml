@@ -7,6 +7,7 @@ featurization:
 
 feat_inference:
   preserve_event_keys: True
+  event_identity_version: 2
 
 batching:
   node_features: node_emb, node_type
@@ -18,10 +19,10 @@ batching:
     tgn_last_neighbor:
       strict_temporal_history: True
       tgn_neighbor_size: 20
-      tgn_neighbor_n_hop: 1
+      tgn_neighbor_n_hop: 2
       fix_buggy_orthrus_TGN: True
       fix_tgn_neighbor_loader: True
-      directed: False
+      directed: True
       insert_neighbors_before: False
 
 training:
@@ -30,7 +31,7 @@ training:
   node_out_dim: 128
   encoder:
     used_methods: tgn, vigil
-    dropout: 0.3
+    dropout: 0.25
     graph_attention:
       num_layers: 2
       num_heads: 8
@@ -42,7 +43,7 @@ training:
       tgn_time_dim: 100
       use_node_feats_in_gnn: True
       use_memory: False
-      use_time_order_encoding: False
+      use_time_order_encoding: True
       project_src_dst: True
   decoder:
     used_methods: predict_edge_type

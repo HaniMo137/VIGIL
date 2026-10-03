@@ -73,6 +73,18 @@ def test_edge_level(
         if event_keys.dtype != torch.long or event_keys.ndim != 1 or len(event_keys) != len(edge_df):
             raise ValueError("Original event keys must be one int64 value per scored event")
         edge_df["key"] = event_keys.cpu().numpy()
+        if cfg.feat_inference.event_identity_version == 2:
+            for attribute, column in (("event_source_graph", "source_graph"),
+                                      ("event_uuid_hash", "event_uuid_hash")):
+                values = getattr(data, attribute, None)
+                if values is None:
+                    raise ValueError("Missing scoped event identities; rerun with --force_restart feat_inference")
+                if values.dtype != torch.uint8 or tuple(values.shape) != (len(edge_df), 32):
+                    raise ValueError(f"{attribute} must have one 32-byte identity per scored event")
+                edge_df[column] = [bytes(row).hex() if any(row) else ""
+                                   for row in values.cpu().tolist()]
+            if (edge_df["source_graph"] == "").any():
+                raise ValueError("Every scored event needs a source graph identity")
 
     # Here is a checkpoint, which records all edge losses in the current time window
     time_interval = (
@@ -87,7 +99,11 @@ def test_edge_level(
         # stable event identities so one batch never overwrites another. The
         # dot separator preserves existing timestamp parsing (date.nanoseconds).
         identities = edge_df[["srcnode", "dstnode", "time", "edge_type", "key"]]
-        digest = hashlib.sha256(identities.to_numpy(dtype="<i8").tobytes()).hexdigest()
+        identity_bytes = identities.to_numpy(dtype="<i8").tobytes()
+        if "source_graph" in edge_df:
+            identity_bytes += data.event_source_graph.cpu().numpy().tobytes()
+            identity_bytes += data.event_uuid_hash.cpu().numpy().tobytes()
+        digest = hashlib.sha256(identity_bytes).hexdigest()
         suffix = ".events_" + digest
     csv_file = os.path.join(logs_dir, time_interval + suffix + ".csv")
 

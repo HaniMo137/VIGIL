@@ -879,6 +879,7 @@ TASK_ARGS = {
     "feat_inference": {
         "to_remove": Arg(bool),  # TODO: remove
         "preserve_event_keys": Arg(bool, desc="Carry original integer multiedge keys into score CSVs"),
+        "event_identity_version": Arg(int, desc="2 adds source-graph scope and UUID hashes to event keys; invalidates downstream caches"),
     },
     "batching": {
         "save_on_disk": Arg(

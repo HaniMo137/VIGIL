@@ -12,6 +12,7 @@ import pandas as pd
 from pidsmaker.incidents.clustering import build_seed_affinity_graph
 from pidsmaker.incidents.models import EdgeRef, Incident
 from pidsmaker.incidents.seeds import _has_identity, select_seed_edges
+from pidsmaker.utils.event_identity import event_uuid_hash
 
 
 @dataclass(frozen=True)
@@ -135,6 +136,11 @@ def prepare_provenance_graph(
             candidates = [
                 event for event in candidates
                 if graph[event[0]][event[1]][event[2]].get("event_uuid") == row["event_uuid"]
+            ]
+        if "event_uuid_hash" in row and _has_identity(row["event_uuid_hash"]):
+            candidates = [
+                event for event in candidates
+                if event_uuid_hash(graph[event[0]][event[1]][event[2]].get("event_uuid")) == row["event_uuid_hash"]
             ]
         if not candidates:
             raise ValueError(f"Scored event {signature} not found in the provenance region")

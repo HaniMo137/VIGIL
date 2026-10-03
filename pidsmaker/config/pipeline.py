@@ -479,6 +479,8 @@ def check_edge_cases(cfg):
     We want to check all errors prior to running the framework here.
     Yield EnvironmentError to be handled in tests.
     """
+    if cfg.feat_inference.event_identity_version not in (1, 2):
+        raise ValueError("event_identity_version must be 1 (legacy) or 2 (graph-scoped)")
     decoders = cfg.training.decoder.used_methods
     use_tgn_neigh_loader = "tgn_last_neighbor" in cfg.batching.intra_graph_batching.used_methods
     use_tgn = "tgn" in cfg.training.encoder.used_methods

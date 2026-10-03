@@ -51,6 +51,7 @@ def test_configuration_and_optional_stage(tmp_path):
 def test_encoder_training_and_checkpoint(tmp_path):
     from pidsmaker.factory import build_model
     cfg = configuration(tmp_path)
+    cfg.feat_inference.event_identity_version = 1  # Legacy handcrafted batch/export coverage.
     batch = SimpleNamespace(
         x_src=torch.randn(4, 128), x_dst=torch.randn(4, 128),
         # IDs intentionally exceed the event count; role tensors must not be
@@ -380,6 +381,7 @@ def test_actual_training_then_incident_stage_offline(tmp_path, monkeypatch):
     from pidsmaker.tasks import postprocessing
 
     cfg = configuration(tmp_path / "artifacts")
+    cfg.feat_inference.event_identity_version = 1  # Legacy artifacts remain supported when unambiguous.
     cfg.training.num_epochs = 2
     cfg._save_for_viz = True
     label = tmp_path / "attack.csv"

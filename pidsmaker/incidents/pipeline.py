@@ -24,11 +24,12 @@ import pandas as pd
 from .__main__ import _json_value, _load_graph
 from .benchmark import load_attack_labels, load_complete_node_labels, quality_metrics
 from .builder import IncidentBuilderConfig, _integer, build_incidents, prepare_provenance_graph
+from pidsmaker.utils.event_identity import source_graph_id
 
 
 COLUMNS = ["srcnode", "dstnode", "time", "edge_type", "loss"]
 REGIONS = ("seeds", "core", "with_context")
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class IncompleteEpoch(ValueError):
@@ -92,15 +93,21 @@ def align_split(graph_paths, files, relation_ids, output):
         raise IncompleteEpoch("Missing score CSVs")
     with tempfile.TemporaryDirectory(prefix="score-index-", dir=output) as temp:
         with closing(sqlite3.connect(str(Path(temp) / "scores.sqlite"))) as db:
-            db.execute("CREATE TABLE scores (id INTEGER PRIMARY KEY, time INTEGER, payload TEXT, assigned INTEGER DEFAULT 0)")
+            db.execute("CREATE TABLE scores (id INTEGER PRIMARY KEY, time INTEGER, source_graph TEXT, payload TEXT, assigned INTEGER DEFAULT 0)")
             maximum = None
+            identity_modes = set()
             for file in files:
                 for chunk in pd.read_csv(file, chunksize=50000, dtype={
                     **{name: str for name in COLUMNS[:-1]}, "event_uuid": str,
+                    "key": str, "source_graph": str, "event_uuid_hash": str,
                 }):
                     missing = set(COLUMNS) - set(chunk.columns)
                     if missing:
                         raise ValueError(f"Missing required columns in {file}: {sorted(missing)}")
+                    scoped = "source_graph" in chunk.columns
+                    identity_modes.add(scoped)
+                    if len(identity_modes) > 1:
+                        raise ValueError("Mixed legacy and graph-scoped score CSVs; rebuild scores in a clean cache generation")
                     records = []
                     for row in chunk.to_dict("records"):
                         for name in COLUMNS[:-1]:
@@ -110,27 +117,42 @@ def align_split(graph_paths, files, relation_ids, output):
                             raise ValueError("Anomaly losses must be finite and nonnegative")
                         # Empty optional identity fields must remain genuinely absent.
                         row = {k: v for k, v in row.items() if not pd.isna(v)}
+                        if "key" in row and (scoped or re.fullmatch(r"[+-]?\d+", row["key"])):
+                            row["key"] = _integer(row["key"], "key")
+                        source = row.get("source_graph")
+                        if scoped and (not isinstance(source, str) or not re.fullmatch(r"[0-9a-f]{64}", source)):
+                            raise ValueError(f"Missing or invalid source graph identity in {file}")
                         maximum = row["loss"] if maximum is None else max(maximum, row["loss"])
-                        records.append((row["time"], json.dumps(row, default=_json_value)))
-                    db.executemany("INSERT INTO scores(time,payload) VALUES (?,?)", records)
+                        records.append((row["time"], source, json.dumps(row, default=_json_value)))
+                    db.executemany("INSERT INTO scores(time,source_graph,payload) VALUES (?,?,?)", records)
             db.execute("CREATE INDEX score_time ON scores(time)")
+            db.execute("CREATE INDEX score_source ON scores(source_graph)")
+            scoped = True in identity_modes
+            sources = [source_graph_id(path) for path in graph_paths] if scoped else [None] * len(graph_paths)
+            if scoped:
+                if len(set(sources)) != len(sources):
+                    raise ValueError("The same source graph is configured multiple times")
+                unknown_sources = {row[0] for row in db.execute("SELECT DISTINCT source_graph FROM scores")} - set(sources)
+                if unknown_sources:
+                    raise ValueError("Score source graphs do not match the configured artifacts; rebuild scoped scores")
             windows = []
             for index, path in enumerate(graph_paths):
                 graph = encoded_graph(path, relation_ids)
+                source = sources[index]
                 signatures = {
                     (_integer(u, "srcnode"), _integer(v, "dstnode"),
                      _integer(d["time"], "time"), _integer(d["edge_type"], "edge_type"))
                     for u, v, d in graph.edges(data=True)
                 }
                 records, ids = [], []
-                if signatures:
+                if scoped or signatures:
                     times = [event[2] for event in signatures]
-                    for row_id, payload, assigned in db.execute(
-                        "SELECT id,payload,assigned FROM scores WHERE time BETWEEN ? AND ?",
-                        (min(times), max(times)),
-                    ):
+                    query = ("SELECT id,payload,assigned FROM scores WHERE source_graph=?" if scoped else
+                             "SELECT id,payload,assigned FROM scores WHERE time BETWEEN ? AND ?")
+                    parameters = (source,) if scoped else (min(times), max(times))
+                    for row_id, payload, assigned in db.execute(query, parameters):
                         row = json.loads(payload)
-                        if tuple(row[name] for name in COLUMNS[:-1]) in signatures:
+                        if scoped or tuple(row[name] for name in COLUMNS[:-1]) in signatures:
                             if assigned:
                                 raise ValueError("Scored event matches multiple provenance windows")
                             records.append(row)
@@ -323,7 +345,7 @@ def evaluate(graphs, score_root, output, relation_ids, *, config=None, epoch=-1,
         for window in windows:
             graph = encoded_graph(window["graph"], relation_ids)
             scores_path = directory / "aligned" / window["scores"]
-            scores = pd.read_csv(scores_path, dtype={"event_uuid": str})
+            scores = pd.read_csv(scores_path, dtype={"event_uuid": str, "source_graph": str, "event_uuid_hash": str})
             started = time.perf_counter()
             incidents = build_incidents(graph, scores, threshold, config)
             runtime = time.perf_counter() - started
