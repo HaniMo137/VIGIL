@@ -98,6 +98,10 @@ def test_attention_gradients_history_sensitivity_and_checkpoint(setup, tmp_path)
     optimizer.step()
     assert not torch.equal(before, model.encoder.src_linear.weight)
     model.eval()
+    # Time-order encoding has mutable GRU history. Compare checkpoint weights
+    # by replaying the same calls from the same initial state on both models.
+    if hasattr(model.encoder, "gru"):
+        model.encoder.gru.reset_state()
     expected = model(batch, inference=True)["loss"]
     ids, embeddings = model.encoder.encode_temporal_nodes(batch)
     assert torch.equal(ids, batch.original_n_id)
@@ -147,6 +151,9 @@ def test_actual_tgn_training_then_incident_stage(setup, tmp_path, monkeypatch):
     from pidsmaker.tasks import postprocessing
     cfg, datasets, graphs, max_node = setup
     cfg.training.num_epochs = 2
+    # This smoke test provisions scores directly; detector-best propagation is
+    # exercised separately with the actual evaluation stage.
+    cfg.postprocessing.incidents.epoch_selection = "latest"
     cfg._save_for_viz = True
     cfg.dataset.ground_truth_relative_path = []
     monkeypatch.setattr(training_loop, "get_preprocessed_graphs", lambda cfg: (*datasets, max_node))

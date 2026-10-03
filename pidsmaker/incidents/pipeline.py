@@ -29,7 +29,7 @@ from pidsmaker.utils.event_identity import source_graph_id
 
 COLUMNS = ["srcnode", "dstnode", "time", "edge_type", "loss"]
 REGIONS = ("seeds", "core", "with_context")
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class IncompleteEpoch(ValueError):
@@ -300,19 +300,19 @@ def write_csv(path, rows, columns):
         writer.writerows(rows)
 
 
-def input_fingerprint(graphs, score_root, relation_ids, config, epoch, label_paths, complete_labels):
+def input_fingerprint(graphs, score_root, relation_ids, config, epoch, label_paths, complete_labels, epoch_selection=None):
     def inventory(paths):
         return [(str(Path(p).resolve()), Path(p).stat().st_size, Path(p).stat().st_mtime_ns) for p in paths]
     graph_inventory = {split: inventory(graphs[split]) for split in ("val", "test")}
     score_inventory = inventory(sorted(Path(score_root).glob("*/model_epoch_*/*.csv")))
     labels = [(str(Path(p).resolve()), hashlib.sha256(Path(p).read_bytes()).hexdigest()
                if Path(p).is_file() else None) for p in list(label_paths) + ([complete_labels] if complete_labels else [])]
-    data = [SCHEMA_VERSION, graph_inventory, score_inventory, relation_ids, asdict(config), epoch, labels]
+    data = [SCHEMA_VERSION, graph_inventory, score_inventory, relation_ids, asdict(config), epoch, labels, epoch_selection]
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
 
 
 def evaluate(graphs, score_root, output, relation_ids, *, config=None, epoch=-1,
-             attack_label_paths=(), complete_node_labels=None, force=False):
+             attack_label_paths=(), complete_node_labels=None, force=False, epoch_selection=None):
     """Save reports and local viewer artifacts, or reload a valid cached report.
 
     Missing configured attack files are reported, not treated as benign labels.
@@ -320,10 +320,14 @@ def evaluate(graphs, score_root, output, relation_ids, *, config=None, epoch=-1,
     complete-label file is an error. Input graph files must be trusted pickles.
     """
     config = config or IncidentBuilderConfig()
+    if epoch_selection is None:
+        epoch_selection = {"policy": "latest" if epoch == -1 else "explicit",
+                           "selection_split": "none" if epoch == -1 else "user_supplied",
+                           "test_selected": False if epoch == -1 else None}
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     fingerprint = input_fingerprint(graphs, score_root, relation_ids, config, epoch,
-                                    attack_label_paths, complete_node_labels)
+                                    attack_label_paths, complete_node_labels, epoch_selection)
     report_path = output / "report.json"
     if report_path.exists() and not force:
         cached = json.loads(report_path.read_text())
@@ -367,11 +371,15 @@ def evaluate(graphs, score_root, output, relation_ids, *, config=None, epoch=-1,
         for metric in ("incident_count", "seed_count", "connector_count", "context_count", "runtime_seconds"):
             summary[metric] = sum(row[metric] for row in rows)
         summary.update(selected_epoch=selected, threshold=threshold, window_count=len(rows))
+        summary.update(epoch_selection_policy=epoch_selection["policy"],
+                       epoch_selection_split=epoch_selection["selection_split"],
+                       epoch_test_selected=epoch_selection["test_selected"])
         report = {
             "schema_version": SCHEMA_VERSION, "fingerprint": fingerprint,
             "summary": summary, "windows": rows, "attacks": attack_rows,
             "missing_attack_label_files": missing, "skipped_incomplete_epochs": skipped,
             "config": asdict(config), "relation_ids": relation_ids,
+            "epoch_selection": {**epoch_selection, "epoch": selected},
             "scope": "Incidents are built separately within each test window; node coverage uses dataset-wide unions. Fragment counts count separate window incidents. Shared attack nodes are excluded from fragmentation/mixing.",
             "runtime_scope": "One builder call per window, including graph preparation; excludes file I/O, metric evaluation, and W&B logging.",
         }
@@ -388,7 +396,7 @@ def evaluate(graphs, score_root, output, relation_ids, *, config=None, epoch=-1,
         report["results_directory"] = generation
         write_json(directory / "report.json", report)
         if fingerprint != input_fingerprint(graphs, score_root, relation_ids, config, epoch,
-                                            attack_label_paths, complete_node_labels):
+                                            attack_label_paths, complete_node_labels, epoch_selection):
             raise RuntimeError("Evaluation inputs changed while processing; retry with immutable artifacts")
         directory.rename(output / generation)
         # Atomic pointer/report replacement; old generations stay recoverable.

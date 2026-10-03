@@ -57,3 +57,4 @@ evaluation:
 postprocessing:
   incidents:
     enabled: True
+    epoch_selection: detector_best

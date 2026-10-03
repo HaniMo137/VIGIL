@@ -7,6 +7,7 @@ postprocessing:
   incidents:
     enabled: False
     epoch: -1
+    epoch_selection: latest
     max_time_gap_ns: 5000000000
     max_connector_hops: 5
     context_hops: 0

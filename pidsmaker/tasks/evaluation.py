@@ -14,9 +14,11 @@ from pidsmaker.detection.evaluation_methods.evaluation_utils import (
     listdir_sorted,
 )
 from pidsmaker.utils.utils import log
+from pidsmaker.utils.epoch_selection import save_detector_selection, score_inventory_fingerprint
 
 
 def standard_evaluation(cfg, evaluation_fn):
+    score_fingerprint = score_inventory_fingerprint(cfg.training._edge_losses_dir)
     test_losses_dir = os.path.join(cfg.training._edge_losses_dir, "test")
     val_losses_dir = os.path.join(cfg.training._edge_losses_dir, "val")
 
@@ -80,6 +82,8 @@ def standard_evaluation(cfg, evaluation_fn):
         wandb.log(stats)
 
         best_metrics = best_metric_pick_best_epoch(stats, best_metrics, cfg)
+
+    save_detector_selection(cfg, best_metrics.get("stats"), score_fingerprint)
 
     if save_files_to_wandb:
         # We only store the scores for the best run

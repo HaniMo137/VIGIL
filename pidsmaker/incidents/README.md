@@ -196,12 +196,50 @@ paths. Use a new experiment name, e.g. `--exp vigil-tgn-atlas-first`; do not reu
 MLP checkpoints or interpret earlier synthetic retrieval metrics as TGN results.
 No old artifacts need deletion.
 
-The optional `postprocessing.incidents` stage runs after training. It chooses
-the latest **numerically ordered, complete scored epoch**, independently of the
-detector's best-test-metric summary. One threshold is frozen from **all validation
-losses in that epoch**. An incomplete newer epoch is skipped and recorded;
-duplicate/ambiguous scored events cause an error, not a guessed association.
-The report records the selected zero-based epoch and threshold.
+The optional `postprocessing.incidents` stage runs after detector evaluation.
+The VIGIL profile uses `epoch_selection: detector_best`: the same scored epoch
+selected by the detector summary, not automatically the last training epoch.
+Evaluation persists `selected_epoch.json` in its task directory with the epoch,
+selection method and score-inventory fingerprint. Cached incident runs reload
+this file; missing/stale selection records fail with an evaluation-only rebuild
+instruction. They never silently fall back to the latest epoch.
+
+**Research caveat:** the inherited `best_adp` selector uses **test labels**
+(ADP, then discrimination to break ties). Following it is an exploratory,
+test-selected comparison, not validation-based checkpoint selection or an
+unbiased held-out result. This provenance is recorded in `report.json`,
+`summary.csv` and W&B under `incidents/epoch_selection_*` and
+`incidents/epoch_test_selected`.
+
+An explicit `postprocessing.incidents.epoch` >= 0 takes precedence over the
+policy. `epoch_selection: latest` retains the label-independent default used
+by other profiles: select the latest numerically ordered complete epoch,
+recording skipped incomplete epochs. Explicit/detector-selected epochs must be
+complete; they do not fall back. Duplicate/ambiguous scores always fail.
+One seed threshold is still frozen from **all validation losses in the chosen
+epoch**. Incident building uses that epoch's event losses, not raw embeddings.
+
+For existing runs without a saved selection record, re-evaluate cached scores
+and reconstruct incidents without retraining or recomputing Word2Vec:
+
+```bash
+python pidsmaker/main.py vigil ATLASV2_EDR \
+  --wandb --project VIGIL --exp vigil-best-epoch-incidents \
+  --force_restart evaluation
+```
+
+To inspect a known epoch directly (for example epoch 0):
+
+```bash
+python pidsmaker/main.py vigil ATLASV2_EDR \
+  --wandb --project VIGIL --exp vigil-epoch0-incidents \
+  --postprocessing.incidents.epoch 0 --force_restart postprocessing
+```
+
+These commands reuse existing training outputs only when the model/data
+configuration is unchanged and those outputs are present. Changing the
+incident epoch/policy does not itself invalidate training artifacts. Selecting
+an epoch after inspecting test results must still be reported as exploratory.
 
 Each transformed test graph is processed once, separately. Incidents **do not
 cross window boundaries**. The defaults are a five-second seed gap, five

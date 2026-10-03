@@ -520,7 +520,7 @@ TASK_DEPENDENCIES = {
     "training": ["batching"],
     "evaluation": ["training"],
     "triage": ["evaluation"],
-    "postprocessing": ["training", "transformation"],
+    "postprocessing": ["training", "transformation", "evaluation"],
 }
 
 
@@ -1151,7 +1151,9 @@ TASK_ARGS = {
     "postprocessing": {
         "incidents": {
             "enabled": Arg(bool),
-            "epoch": Arg(int, desc="-1 selects latest complete scored epoch"),
+            "epoch": Arg(int, desc="Explicit epoch override; -1 uses epoch_selection"),
+            "epoch_selection": Arg(str, vals=OR(["latest", "detector_best"]),
+                                   desc="detector_best follows evaluation's test-selected summary; latest is label-independent"),
             "max_time_gap_ns": Arg(int),
             "max_connector_hops": Arg(int),
             "context_hops": Arg(int),

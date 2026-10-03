@@ -39,7 +39,7 @@ def test_configuration_and_optional_stage(tmp_path):
     assert cfg.evaluation.node_evaluation.threshold_method == "max_val_loss"
     assert not cfg.evaluation.node_evaluation.use_kmeans
     assert list(get_task_to_module(cfg))[-1] == "postprocessing"
-    assert TASK_DEPENDENCIES["postprocessing"] == ["training", "transformation"]
+    assert TASK_DEPENDENCIES["postprocessing"] == ["training", "transformation", "evaluation"]
     training_path = cfg.training._task_path
     cfg.postprocessing.incidents.enabled = False
     set_task_paths(cfg)
