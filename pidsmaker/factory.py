@@ -127,7 +127,7 @@ def encoder_factory(cfg, msg_dim, in_dim, device, max_node_num, graph_reindexer)
             pass
 
         # Basic GNN encoders
-        elif method == "graph_attention":
+        elif method in ("graph_attention", "vigil"):
             encoder = GraphAttentionEmbedding(
                 in_dim=in_dim,
                 hid_dim=node_hid_dim,
@@ -241,7 +241,7 @@ def encoder_factory(cfg, msg_dim, in_dim, device, max_node_num, graph_reindexer)
             )
 
         # MLP encoders
-        elif method == "vigil":
+        elif method == "vigil_mlp":
             encoder = VigilPIDSEncoder(
                 in_dim, node_hid_dim, node_out_dim, dropout=dropout,
                 num_residual_blocks=cfg.training.encoder.vigil.num_residual_blocks,
@@ -288,7 +288,10 @@ def encoder_factory(cfg, msg_dim, in_dim, device, max_node_num, graph_reindexer)
         else:
             memory = None
 
-        encoder = TGNEncoder(
+        wrapper = VigilTGNEncoder if "vigil" in {
+            m.strip() for m in cfg.training.encoder.used_methods.replace("-", ",").split(",")
+        } else TGNEncoder
+        encoder = wrapper(
             encoder=encoder,
             memory=memory,
             time_encoder=memory.time_enc if memory else None,

@@ -37,6 +37,11 @@ omit `--wandb` for local-only reporting. See the [evaluation guide](pidsmaker/in
 for output paths and visualization. Memory storage and retrieval remain separate
 components; this command does not populate or query memory.
 
+The current `vigil` profile uses ORTHRUS-style temporal-neighbor graph attention.
+The earlier semantic MLP is retained as `vigil_mlp`. Existing synthetic memory
+benchmarks remain MLP-based; TGN memory retrieval requires explicit temporal
+context and must not reuse the old signatures.
+
 ## Incident builder
 
 The incident builder turns scored provenance events into smaller **candidate incidents**. It selects high-scoring events as seeds, groups seeds that share entities or have a time-respecting connection, and retains lower-scoring events when they help connect the story. Optional nearby context can be added without treating it as a seed. Unrelated activity stays separate, and every seed is retained, even when isolated.

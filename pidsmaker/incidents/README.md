@@ -161,11 +161,40 @@ python pidsmaker/main.py vigil ATLASV2_EDR \
   --wandb --project VIGIL --exp vigil-atlas-first
 ```
 
-`config/vigil.yml` inherits VELOX. It uses training-only Word2Vec, Word2Vec-only
-node inputs, 1,024-event batches, 128-dimensional VIGIL layers, two residual
-blocks, dropout 0.3, learning rate 0.0001, and edge-type prediction. Training
-durations remain inherited, untuned starting settings. The detector retains
-validation-maximum thresholding with K-means disabled.
+`config/vigil.yml` now inherits ORTHRUS. `tgn, vigil` selects the existing
+PIDSMaker temporal-neighbor pipeline with a VIGIL TGN wrapper and two
+graph-attention layers (eight heads in the hidden layer). Inputs combine
+training-only Word2Vec and node types; batches contain 1,024 events. Hidden/output
+dimensions remain 128, dropout 0.3, learning rate 0.0001, and the objective is
+edge-type prediction. Recurrent TGN memory and explicit time encoding are off,
+as in the bundled ORTHRUS profile; temporal information comes from recent-event
+neighborhoods. These are initial settings, not a claim of reproducing the paper's
+results. The detector retains validation-maximum thresholding with K-means
+enabled (top K = 30). K-means is detector postprocessing, not incident clustering;
+the incident builder still thresholds raw event losses using validation maxima.
+
+VIGIL enables corrected neighbor feature/reindexing paths and
+`strict_temporal_history`. Event tensors are stably sorted by int64 timestamps
+before neighbor indexing, retaining event keys. Overlapping/out-of-order windows
+within a source stream fail explicitly. Neighbor and feature caches reset between
+train/validation/test and independent source streams. Current batches are inserted
+only after their history has been sampled. Equal timestamps retain stored order;
+this remains a batched temporal model, not strict event-by-event replay.
+Other system profiles retain their original behavior (the strict flag defaults
+to false). These corrections/isolation choices differ from historical ORTHRUS
+settings and must be reported in any comparison.
+
+The old residual MLP remains selectable with `vigil_mlp`. Existing synthetic
+memory benchmarks/checkpoints use that legacy baseline, not the new TGN.
+TGN `encode_temporal_nodes(batch)` exports node IDs and embeddings from a
+supplied temporal context. Feature-only memory intake deliberately rejects the
+TGN until the same history/replay policy is supplied for references and queries.
+See the memory guide; do not mix old signatures with new TGN embeddings.
+
+The changed configuration creates different batching/training/evaluation cache
+paths. Use a new experiment name, e.g. `--exp vigil-tgn-atlas-first`; do not reuse
+MLP checkpoints or interpret earlier synthetic retrieval metrics as TGN results.
+No old artifacts need deletion.
 
 The optional `postprocessing.incidents` stage runs after training. It chooses
 the latest **numerically ordered, complete scored epoch**, independently of the

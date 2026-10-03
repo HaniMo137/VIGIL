@@ -1,6 +1,39 @@
 import torch
 import torch.nn as nn
 
+from .tgn_encoder import TGNEncoder
+
+
+class VigilTGNEncoder(TGNEncoder):
+    """ORTHRUS-style temporal-neighborhood graph attention for VIGIL.
+
+    Reuses PIDSMaker's TGN forward path and event-aligned outputs. The default
+    profile has historical-neighbor context, not recurrent TGNMemory. Context
+    is constructed before inserting the current batch (no target-edge labels).
+    """
+
+    def encode_nodes(self, features):
+        raise ValueError(
+            "VIGIL TGN embeddings require temporal context, not only node features. "
+            "Use encode_temporal_nodes(batch) with replayed history; existing memory "
+            "signatures remain the vigil_mlp baseline until context-aware intake is configured."
+        )
+
+    def encode_temporal_nodes(self, batch):
+        """Return original IDs and embeddings for an explicitly supplied context.
+
+        Not a feature-only replacement for the memory signature API. The caller
+        must record/replay the history. Stateful memory modes are deliberately
+        rejected here rather than mutating a retrieval checkpoint during a query.
+        """
+        if self.training:
+            raise ValueError("Temporal embedding export requires eval mode")
+        if self.use_memory or self.use_time_enc:
+            raise ValueError("Temporal embedding export requires an explicit state replay policy")
+        with torch.no_grad():
+            result = self.forward(batch, inference=True)
+        return batch.original_n_id.clone(), result["h"].detach().clone()
+
 
 class ResidualBlock(nn.Module):
     """
@@ -92,14 +125,14 @@ class RoleEncoder(nn.Module):
 
 class VigilEncoder(nn.Module):
     """
-    Main semantic base encoder used in VIGIL.
+    Archived feature-only VIGIL baseline, retained for existing memory fixtures.
 
     The input features are expected to come from the Word2Vec
     featurization stage of PIDSMaker.
 
-    This version does not use graph message passing yet. It is intended
-    to serve as the non-GNN baseline before comparing it with a
-    GraphSAGE/GAT-based encoder.
+    This class keeps its historical name/checkpoint identity for compatibility.
+    New detector runs use VigilTGNEncoder via config/vigil.yml. The explicit
+    config/vigil_mlp.yml profile selects this older non-GNN architecture.
     """
 
     def __init__(

@@ -1,3 +1,8 @@
+batching:
+  intra_graph_batching:
+    tgn_last_neighbor:
+      strict_temporal_history: False
+
 postprocessing:
   incidents:
     enabled: False

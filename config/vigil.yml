@@ -1,4 +1,4 @@
-_include_yml: velox
+_include_yml: orthrus
 
 featurization:
   training_split: train
@@ -9,28 +9,49 @@ feat_inference:
   preserve_event_keys: True
 
 batching:
-  node_features: node_emb
+  node_features: node_emb, node_type
+  fix_buggy_graph_reindexer: True
   intra_graph_batching:
-    used_methods: edges
+    used_methods: edges, tgn_last_neighbor
     edges:
       intra_graph_batch_size: 1024
+    tgn_last_neighbor:
+      strict_temporal_history: True
+      tgn_neighbor_size: 20
+      tgn_neighbor_n_hop: 1
+      fix_buggy_orthrus_TGN: True
+      fix_tgn_neighbor_loader: True
+      directed: False
+      insert_neighbors_before: False
 
 training:
   lr: 0.0001
   node_hid_dim: 128
   node_out_dim: 128
   encoder:
-    used_methods: vigil
+    used_methods: tgn, vigil
     dropout: 0.3
-    vigil:
-      num_residual_blocks: 2
+    graph_attention:
+      num_layers: 2
+      num_heads: 8
+      concat: True
+      activation: relu
+      flow: source_to_target
+    tgn:
+      tgn_memory_dim: 100
+      tgn_time_dim: 100
+      use_node_feats_in_gnn: True
+      use_memory: False
+      use_time_order_encoding: False
+      project_src_dst: True
   decoder:
     used_methods: predict_edge_type
 
 evaluation:
   node_evaluation:
     threshold_method: max_val_loss
-    use_kmeans: False
+    use_kmeans: True
+    kmeans_top_K: 30
 
 postprocessing:
   incidents:

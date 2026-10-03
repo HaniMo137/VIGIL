@@ -605,6 +605,7 @@ FEATURIZATIONS_CFG = {
 }
 
 ENCODERS_CFG = {
+    "vigil_mlp": {},
     "vigil": {"num_residual_blocks": Arg(int)},
     "tgn": {
         "tgn_memory_dim": Arg(int),
@@ -942,6 +943,9 @@ TASK_ARGS = {
                 ),
             },
             "tgn_last_neighbor": {
+                "strict_temporal_history": Arg(
+                    bool, desc="Stable timestamp sort, reject overlapping/out-of-order windows, and isolate split/source neighbor histories"
+                ),
                 "tgn_neighbor_size": Arg(
                     int, desc="Number of last neighbors to store for each node."
                 ),

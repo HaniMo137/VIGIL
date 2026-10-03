@@ -13,7 +13,7 @@ from pidsmaker.incidents import pipeline
 from pidsmaker.incidents.tracking import log_report
 
 
-def configuration(tmp_path, model="vigil"):
+def configuration(tmp_path, model="vigil_mlp"):
     from pidsmaker.config import get_runtime_required_args, get_yml_cfg
     args = get_runtime_required_args(args=[model, "ATLASV2_EDR", "--cpu", "--artifact_dir", str(tmp_path)])
     return get_yml_cfg(args)

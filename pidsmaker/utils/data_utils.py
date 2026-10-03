@@ -119,6 +119,9 @@ def load_all_datasets(cfg, device, only_keep=None):
         val_data = val_data[:only_keep]
         test_data = test_data[:only_keep]
 
+    if ("tgn_last_neighbor" in cfg.batching.intra_graph_batching.used_methods
+            and cfg.batching.intra_graph_batching.tgn_last_neighbor.strict_temporal_history):
+        prepare_temporal_history([train_data, val_data, test_data])
     full_data = get_full_data([train_data, val_data, test_data])
 
     max_node = torch.cat([full_data.src, full_data.dst]).max().item() + 1
@@ -349,6 +352,29 @@ def build_edge_feats(fields, msg, edge_features, possible_triplets, num_edge_typ
         edge_feats.append(msg)
     edge_feats = torch.cat(edge_feats, dim=-1) if len(edge_feats) > 0 else None
     return edge_feats
+
+
+def prepare_temporal_history(datasets):
+    """Sort event rows together, before building the global neighbor event index.
+
+    Graph iteration is not chronological. Sort within each window, preserving
+    equal-time order and event keys. Windows must already be non-overlapping
+    in temporal order; do not silently merge or repartition their identities.
+    Independent splits/source streams are checked separately.
+    """
+    for dataset in datasets:
+        for stream in dataset:
+            latest = None
+            for index, data in enumerate(stream):
+                if not data.t.numel():
+                    continue
+                if data.t.dtype != torch.long:
+                    raise ValueError("Temporal history requires int64 timestamps")
+                data = data[torch.argsort(data.t, stable=True)]
+                if latest is not None and int(data.t[0]) < latest:
+                    raise ValueError("Temporal provenance windows overlap or are out of order; verify split/window construction")
+                latest = int(data.t[-1])
+                stream[index] = data
 
 
 def get_full_data(datasets):
@@ -620,6 +646,13 @@ def compute_tgn_graphs(
 
     for dataset in datasets:
         for data_list in dataset:
+            if tgn_loader_cfg.strict_temporal_history:
+                # e_id must still index full_data, even when history is reset.
+                offset = neighbor_loader.cur_e_id
+                neighbor_loader.reset_state()
+                neighbor_loader.cur_e_id = offset
+                node_feat_cache.zero_()
+                node_type_cache.zero_()
             for batch in log_tqdm(data_list, desc="Computing TGN last neighbor graphs"):
                 batch = batch.to(device)
                 batch_edge_index = batch.edge_index.clone()
@@ -889,11 +922,14 @@ def save_model(model, path: str, cfg):
     )
 
     if isinstance(model.encoder, TGNEncoder):
-        torch.save(
-            model.encoder.neighbor_loader,
-            os.path.join(path, "neighbor_loader.pkl"),
-            pickle_protocol=pickle.HIGHEST_PROTOCOL,
-        )
+        # Current TGN batches already contain their historical neighborhoods.
+        # Only legacy encoders owning a live loader need to serialize it.
+        if hasattr(model.encoder, "neighbor_loader"):
+            torch.save(
+                model.encoder.neighbor_loader,
+                os.path.join(path, "neighbor_loader.pkl"),
+                pickle_protocol=pickle.HIGHEST_PROTOCOL,
+            )
         if cfg.training.encoder.tgn.use_memory or "time_encoding" in cfg.batching.edge_features:
             torch.save(
                 model.encoder.memory,
@@ -906,12 +942,15 @@ def load_model(model, path: str, cfg, map_location=None):
     """
     Loads weights and tensors from disk into a model.
     """
-    model.load_state_dict(torch.load(os.path.join(path, "state_dict.pkl")))
+    model.load_state_dict(torch.load(os.path.join(path, "state_dict.pkl"), map_location=map_location))
 
     if isinstance(model.encoder, TGNEncoder):
-        model.encoder.neighbor_loader = torch.load(os.path.join(path, "neighbor_loader.pkl"))
+        if hasattr(model.encoder, "neighbor_loader"):
+            model.encoder.neighbor_loader = torch.load(
+                os.path.join(path, "neighbor_loader.pkl"), map_location=map_location
+            )
         if cfg.training.encoder.tgn.use_memory or "time_encoding" in cfg.batching.edge_features:
-            model.encoder.memory = torch.load(os.path.join(path, "memory.pkl"))
+            model.encoder.memory = torch.load(os.path.join(path, "memory.pkl"), map_location=map_location)
 
     return model
 

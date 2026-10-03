@@ -33,6 +33,17 @@ tamper-proof database or retrieval index.
 
 ## Fixed incident signature
 
+**Encoder migration (3 October 2026):** the detector's `vigil` profile now uses
+`VigilTGNEncoder`. This feature-only signature API still supports the archived
+semantic `VigilEncoder` (`vigil_mlp` profile). TGN embeddings require a temporal
+neighborhood, not just a matrix of node features; calling `encode_nodes(features)`
+on the TGN fails explicitly. `encode_temporal_nodes(batch)` can export original
+node IDs and context-dependent embeddings in eval mode with recurrent memory
+disabled, but it is not yet wired into verified-memory intake/retrieval. A shared
+checkpoint plus a documented history/replay policy is required before comparing
+TGN references and queries. Do not label the existing synthetic memory results
+as TGN experiments. Old databases and checkpoints are left unchanged.
+
 `build_incident_signature(graph, node_features, encoder, schema)` uses the
 frozen VIGIL encoder's shared node representation. It averages those vectors
 over the incident's nodes; it does not average the separate source and

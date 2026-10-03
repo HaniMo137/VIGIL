@@ -483,8 +483,14 @@ def check_edge_cases(cfg):
     use_tgn_neigh_loader = "tgn_last_neighbor" in cfg.batching.intra_graph_batching.used_methods
     use_tgn = "tgn" in cfg.training.encoder.used_methods
     use_rcaid_pseudo_graph = "rcaid_pseudo_graph" in cfg.transformation.used_methods
+    encoder_methods = {m.strip() for m in cfg.training.encoder.used_methods.replace("-", ",").split(",")}
+    if "vigil" in encoder_methods and not use_tgn:
+        raise ValueError("VIGIL requires 'tgn, vigil'; use 'vigil_mlp' for the archived semantic baseline")
 
     if use_tgn_neigh_loader:
+        loader = cfg.batching.intra_graph_batching.tgn_last_neighbor
+        if loader.strict_temporal_history and loader.insert_neighbors_before:
+            raise ValueError("Strict temporal history cannot insert current events before scoring")
         if use_rcaid_pseudo_graph:
             raise ValueError(
                 "Cannot use TGN with RCaid pseudo graph transformation. Edge timestamps are ignored with this transformation."
